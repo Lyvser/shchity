@@ -70,8 +70,6 @@ footer{margin-top:28px;color:var(--muted);font-size:14px;text-align:center}
   background:var(--plate);color:var(--ink);margin:0 0 10px}
 .wires li{grid-template-columns:auto 1fr auto}
 .wires .tag.wl{white-space:pre;min-width:84px;font-variant-numeric:tabular-nums}
-.wires .tag.wn{background:var(--wire);color:#fff}
-.wires .tag.wt{background:var(--module);color:var(--ink)}
 .wires .what{font-variant-numeric:tabular-nums}
 .wires .dev{font-size:13px}
 .legend{margin:0;padding:0;list-style:none;border-top:3px solid var(--module)}
@@ -94,6 +92,8 @@ footer{margin-top:28px;color:var(--muted);font-size:14px;text-align:center}
   main,main.wide{max-width:none;padding:0 6mm}
   .master,.facts,.tools,.find,.review,.edit-open,#nofound,.tips,h2.howto,.legend,.noprint{display:none!important}
   .printhead{display:block;margin:0 0 8px}
+  body.print-dev #wirSection{display:none!important}
+  body.print-wir #devSection{display:none!important}
   .hide{display:none!important}
   .rail li{break-inside:avoid;padding:5px 2px}
   h2{margin:14px 0 6px;break-after:avoid}
@@ -123,7 +123,6 @@ function spaced(l){
 
 function render(DATA){
   const m = DATA.master || {};
-  const groups = Array.isArray(DATA.groups) ? DATA.groups : [];
   const tel = (m.phone || "").replace(/[^\d+]/g, "");
   document.title = "Электрощит № " + (DATA.number || "");
   app.innerHTML = `
@@ -138,16 +137,6 @@ function render(DATA){
       <a class="btn" href="viber://chat?number=${encodeURIComponent(tel)}">Viber</a>
     </div>
   </div>
-  <h2>Что за что отвечает</h2>
-  <ul class="rail">
-    ${groups.map(g => `
-      <li>
-        <span class="tag">${esc(g[0])}</span>
-        <span><span class="what">${esc(g[1])}</span><span class="dev">${esc(g[2])}</span></span>
-        <span class="rate">${esc(g[3])}</span>
-      </li>`).join("")}
-  </ul>
-  <p class="note">Обозначения совпадают с наклейками на автоматах в щите.</p>
   <div id="extra"></div>
   <h2>Как пользоваться</h2>
   <ul class="tips">
@@ -179,28 +168,31 @@ function renderExtra(D, W, n){
   const box = document.getElementById("extra");
   if (!box) return;
   app.classList.add("wide");
-  const kind = l => /^L/.test(l) ? "wl" : (/^N/.test(l) ? "wl wn" : "wt");
+  const kind = l => "wl";
   const sec = w => w[3] ? String(w[3]) : "";
   let html = `<div class="tools"><button class="btn" id="bPrint" type="button">Печать / PDF</button></div>
   <div class="printhead"><b>Электрощит № ${esc(n)}</b></div>`;
   if (devs.length){
     html += `
+  <div id="devSection">
   <h2>Элементы щита</h2>
   <p class="note" style="margin:0 0 10px">Обозначение, наименование и назначение. Обозначения совпадают с наклейками в щите. Всего ${devs.length}.</p>
-  <div class="tools"><button class="btn" id="bDevCsv" type="button">Скачать (Excel)</button></div>
+  <div class="tools"><button class="btn" id="bDevCsv" type="button">Скачать (Excel)</button><button class="btn" id="bDevPdf" type="button">Скачать PDF</button></div>
   <ul class="rail dev-list">
     ${devs.map(d => `
       <li>
         <span class="tag">${esc(d[0])}</span>
         <span><span class="what">${esc(d[1])}</span>${d[2] ? `<span class="dev">${esc(d[2])}</span>` : ""}</span>
       </li>`).join("")}
-  </ul>`;
+  </ul>
+  </div>`;
   }
   if (wires.length){
     html += `
+  <div id="wirSection">
   <h2>Силовые подключения</h2>
   <p class="note" style="margin:0 0 10px">Все провода щита: метка на проводе, откуда и куда он идёт, сечение. Всего ${wires.length}.</p>
-  <div class="tools"><button class="btn" id="bWirCsv" type="button">Скачать (Excel)</button></div>
+  <div class="tools"><button class="btn" id="bWirCsv" type="button">Скачать (Excel)</button><button class="btn" id="bWirPdf" type="button">Скачать PDF</button></div>
   <input class="find" id="find" type="search" placeholder="Найти: метка, аппарат, клемма (QF 11, X8, L1.2.1)" aria-label="Поиск по проводам">
   <ul class="rail wires" id="wires">
     ${wires.map((w, i) => `
@@ -211,7 +203,8 @@ function renderExtra(D, W, n){
         <span class="rate">${sec(w) ? esc(sec(w)) + " мм²" : "—"}</span>
       </li>`).join("")}
   </ul>
-  <p class="note hide" id="nofound">Ничего не найдено.</p>`;
+  <p class="note hide" id="nofound">Ничего не найдено.</p>
+  </div>`;
   }
   html += `
   <h2 class="howto">Как читать маркировку</h2>
@@ -226,10 +219,19 @@ function renderExtra(D, W, n){
       <span class="ex">Клеммы пронумерованы подряд по всему щиту.</span></li>
     <li><b>X8:36</b> Клеммный блок и клемма: блок X8, клемма 36.</li>
     <li><b>SA1:G2</b> Аппарат и вывод: SA1 — переключатель, G2 — его клемма (у автомата это цифры 1, 2, 3 …).</li>
-    <li>Цвета проводов: фаза L1 — коричневый, L2 — чёрный, L3 — серый, N — синий, PE (защитный) — жёлто-зелёный. Защитные провода и перемычки между клеммами блока номеров не имеют.</li>
   </ul>`;
   box.innerHTML = html;
+  // «Скачать PDF»: окно печати браузера с выбором «Сохранить как PDF»; печатается только нужный список
+  const printOnly = cls => {
+    document.body.classList.add(cls);
+    const done = () => { document.body.classList.remove(cls); window.removeEventListener("afterprint", done); };
+    window.addEventListener("afterprint", done);
+    window.print();
+    setTimeout(done, 3000);
+  };
   document.getElementById("bPrint").addEventListener("click", () => window.print());
+  const pd = document.getElementById("bDevPdf"); if (pd) pd.addEventListener("click", () => printOnly("print-dev"));
+  const pw = document.getElementById("bWirPdf"); if (pw) pw.addEventListener("click", () => printOnly("print-wir"));
   const bd = document.getElementById("bDevCsv");
   if (bd) bd.addEventListener("click", () =>
     downloadCsv("elementy_" + n + ".csv", [["Обозначение", "Наименование", "Назначение"]].concat(devs.map(d => [d[0], d[1], d[2] || ""]))));
