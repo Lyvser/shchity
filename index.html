@@ -65,6 +65,40 @@ h2{font-size:20px;font-weight:800;margin:36px 0 12px}
 footer{margin-top:28px;color:var(--muted);font-size:14px;text-align:center}
 .edit-open{display:block;margin:28px auto 0;background:none;border:1px dashed var(--muted);color:var(--muted);
   font:inherit;font-size:15px;padding:8px 16px;border-radius:6px;cursor:pointer}
+/* v2: силовые подключения и как читать маркировку */
+.find{width:100%;font:inherit;font-size:16px;padding:10px 12px;border:1px solid var(--line);border-radius:6px;
+  background:var(--plate);color:var(--ink);margin:0 0 10px}
+.wires li{grid-template-columns:auto 1fr auto}
+.wires .tag.wl{white-space:pre;min-width:84px;font-variant-numeric:tabular-nums}
+.wires .tag.wn{background:var(--wire);color:#fff}
+.wires .tag.wt{background:var(--module);color:var(--ink)}
+.wires .what{font-variant-numeric:tabular-nums}
+.wires .dev{font-size:13px}
+.legend{margin:0;padding:0;list-style:none;border-top:3px solid var(--module)}
+.legend li{padding:12px 4px;border-bottom:1px solid var(--line)}
+.legend b{display:inline-block;background:var(--tag);color:var(--tag-ink);font-weight:800;font-size:14px;
+  padding:1px 8px;border-radius:3px;white-space:pre;margin-right:6px}
+.legend .ex{display:block;color:var(--muted);font-size:15px;margin-top:2px}
+.hide{display:none!important}
+/* v3: элементы щита, скачивание, печать */
+.tools{display:flex;flex-wrap:wrap;gap:8px;margin:0 0 12px}
+.tools .btn{flex:0 1 auto;padding:9px 14px;font-size:15px}
+.dev-list li{grid-template-columns:auto 1fr}
+.dev-list .tag{min-width:62px}
+.dev-list .dev{font-size:14px}
+.wires .dev .role{font-weight:600}
+.printhead{display:none}
+@media print{
+  :root{--bg:#fff;--plate:#fff;--ink:#000;--muted:#333;--line:#999;--module:#ddd}
+  body{background:#fff;font-size:12px}
+  main,main.wide{max-width:none;padding:0 6mm}
+  .master,.facts,.tools,.find,.review,.edit-open,#nofound,.tips,h2.howto,.legend,.noprint{display:none!important}
+  .printhead{display:block;margin:0 0 8px}
+  .hide{display:none!important}
+  .rail li{break-inside:avoid;padding:5px 2px}
+  h2{margin:14px 0 6px;break-after:avoid}
+  .tag{border:1px solid #000;background:#fff!important;color:#000!important}
+}
 </style>
 </head>
 <body>
@@ -76,6 +110,15 @@ const esc = s => String(s ?? "").replace(/[&<>"]/g, c => ({"&":"&amp;","<":"&lt;
 
 function fail(msg){
   app.innerHTML = '<h1>Паспорт не найден</h1><p class="sub">' + esc(msg) + '</p>';
+}
+
+// метка на проводе так, как она напечатана: после L и N два пробела (L  1.2.1), после других букв один (QF 11)
+function spaced(l){
+  l = String(l ?? "");
+  if (l.indexOf(" ") >= 0) return l;
+  const m = /^([A-Za-z]+)(\d.*)$/.exec(l);
+  if (!m) return l;
+  return m[1] + (/^[LlNn]$/.test(m[1]) ? "  " : " ") + m[2];
 }
 
 function render(DATA){
@@ -105,6 +148,7 @@ function render(DATA){
       </li>`).join("")}
   </ul>
   <p class="note">Обозначения совпадают с наклейками на автоматах в щите.</p>
+  <div id="extra"></div>
   <h2>Как пользоваться</h2>
   <ul class="tips">
     <li>Раз в год нужно протягивать все винтовые соединения в щите. От нагрева и остывания винты со временем ослабевают, а слабый контакт греется — это одна из самых частых причин неисправностей и пожаров в электропроводке. Мастер сделает это за пару часов, звоните.</li>
@@ -117,11 +161,107 @@ function render(DATA){
   `;
 }
 
+// v3: элементы щита и силовые подключения (data/<n>_devices.json, data/<n>_wires.json), скачивание, печать
+function csvCell(v){ return '"' + String(v ?? "").replace(/"/g, '""') + '"'; }
+function downloadCsv(name, rows){
+  const text = "﻿" + rows.map(r => r.map(csvCell).join(";")).join("\r\n");
+  const url = URL.createObjectURL(new Blob([text], {type: "text/csv;charset=utf-8"}));
+  const a = document.createElement("a");
+  a.href = url; a.download = name;
+  document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 2000);
+}
+
+function renderExtra(D, W, n){
+  const devs = D && Array.isArray(D.devices) ? D.devices : [];
+  const wires = W && Array.isArray(W.wires) ? W.wires : [];
+  if (!devs.length && !wires.length) return;
+  const box = document.getElementById("extra");
+  if (!box) return;
+  app.classList.add("wide");
+  const kind = l => /^L/.test(l) ? "wl" : (/^N/.test(l) ? "wl wn" : "wt");
+  const sec = w => w[3] ? String(w[3]) : "";
+  let html = `<div class="tools"><button class="btn" id="bPrint" type="button">Печать / PDF</button></div>
+  <div class="printhead"><b>Электрощит № ${esc(n)}</b></div>`;
+  if (devs.length){
+    html += `
+  <h2>Элементы щита</h2>
+  <p class="note" style="margin:0 0 10px">Обозначение, наименование и назначение. Обозначения совпадают с наклейками в щите. Всего ${devs.length}.</p>
+  <div class="tools"><button class="btn" id="bDevCsv" type="button">Скачать (Excel)</button></div>
+  <ul class="rail dev-list">
+    ${devs.map(d => `
+      <li>
+        <span class="tag">${esc(d[0])}</span>
+        <span><span class="what">${esc(d[1])}</span>${d[2] ? `<span class="dev">${esc(d[2])}</span>` : ""}</span>
+      </li>`).join("")}
+  </ul>`;
+  }
+  if (wires.length){
+    html += `
+  <h2>Силовые подключения</h2>
+  <p class="note" style="margin:0 0 10px">Все провода щита: метка на проводе, откуда и куда он идёт, сечение. Всего ${wires.length}.</p>
+  <div class="tools"><button class="btn" id="bWirCsv" type="button">Скачать (Excel)</button></div>
+  <input class="find" id="find" type="search" placeholder="Найти: метка, аппарат, клемма (QF 11, X8, L1.2.1)" aria-label="Поиск по проводам">
+  <ul class="rail wires" id="wires">
+    ${wires.map((w, i) => `
+      <li data-q="${esc((w[0] + " " + spaced(w[0]) + " " + w[1] + " " + w[2] + " " + (w[4] || "") + " " + (w[5] || "") + " " + (w[6] || "")).toLowerCase())}">
+        <span class="tag ${kind(w[0])}">${esc(spaced(w[0]))}</span>
+        <span><span class="what">${esc(w[1])} → ${esc(w[2])}</span>
+          ${(w[4] || w[5] || w[6]) ? `<span class="dev">${w[4] ? `<span class="role">${esc(w[4])}</span>` : ""}${w[5] ? (w[4] ? " · " : "") + esc(w[5]) : ""}${w[6] ? ((w[4] || w[5]) ? " · " : "") + esc(w[6]) : ""}</span>` : ""}</span>
+        <span class="rate">${sec(w) ? esc(sec(w)) + " мм²" : "—"}</span>
+      </li>`).join("")}
+  </ul>
+  <p class="note hide" id="nofound">Ничего не найдено.</p>`;
+  }
+  html += `
+  <h2 class="howto">Как читать маркировку</h2>
+  <ul class="legend">
+    <li><b>QF 11</b> Аппарат: автомат № 11. Буквы: QF — автомат, SA — переключатель, KT — реле времени, XT — кросс-модуль (общая точка фаз и нуля).
+      <span class="ex">Обозначения те же, что на наклейках на панели щита.</span></li>
+    <li><b>L  1.2.1</b> Провод щита: L — фаза; первая цифра — номер фазы (1, 2, 3), вторая — номер кабеля (пучка проводов, идущих вместе), третья — номер провода выше по цепи.
+      <span class="ex">L  1.2.1 — фаза 1, кабель 2, провод 1.</span></li>
+    <li><b>N  7.1</b> Нуль: N, номер кабеля, номер провода.
+      <span class="ex">N  7.1 — нуль, кабель 7, провод 1.</span></li>
+    <li><b>42</b> Число без букв — номер клеммы, к которой идёт провод от автомата.
+      <span class="ex">Клеммы пронумерованы подряд по всему щиту.</span></li>
+    <li><b>X8:36</b> Клеммный блок и клемма: блок X8, клемма 36.</li>
+    <li><b>SA1:G2</b> Аппарат и вывод: SA1 — переключатель, G2 — его клемма (у автомата это цифры 1, 2, 3 …).</li>
+    <li>Цвета проводов: фаза L1 — коричневый, L2 — чёрный, L3 — серый, N — синий, PE (защитный) — жёлто-зелёный. Защитные провода и перемычки между клеммами блока номеров не имеют.</li>
+  </ul>`;
+  box.innerHTML = html;
+  document.getElementById("bPrint").addEventListener("click", () => window.print());
+  const bd = document.getElementById("bDevCsv");
+  if (bd) bd.addEventListener("click", () =>
+    downloadCsv("elementy_" + n + ".csv", [["Обозначение", "Наименование", "Назначение"]].concat(devs.map(d => [d[0], d[1], d[2] || ""]))));
+  const bw = document.getElementById("bWirCsv");
+  if (bw) bw.addEventListener("click", () =>
+    downloadCsv("provoda_" + n + ".csv", [["№", "Провод", "Жила", "Откуда", "Куда", "Марка", "Сечение, мм²", "Примечание"]]
+      .concat(wires.map((w, i) => [i + 1, spaced(w[0]), w[4] || "", w[1], w[2], w[5] || "", sec(w), w[6] || ""]))));
+  const inp = document.getElementById("find"), list = document.getElementById("wires"), nf = document.getElementById("nofound");
+  if (inp && list){
+    inp.addEventListener("input", () => {
+      const q = inp.value.trim().toLowerCase().replace(/\s+/g, " ");
+      let shown = 0;
+      list.querySelectorAll("li").forEach(li => {
+        const ok = !q || li.getAttribute("data-q").replace(/\s+/g, " ").indexOf(q) >= 0;
+        li.classList.toggle("hide", !ok);
+        if (ok) shown++;
+      });
+      nf.classList.toggle("hide", shown > 0);
+    });
+  }
+}
+
 const n = new URLSearchParams(location.search).get("n") || "";
 if (!/^[A-Za-z0-9._-]{1,40}$/.test(n)) { fail("В ссылке не указан номер щита."); return; }
 fetch("data/" + encodeURIComponent(n) + ".json?v=" + Date.now(), {cache: "no-store"})
   .then(r => { if (!r.ok) throw new Error("http " + r.status); return r.json(); })
-  .then(render)
+  .then(d => { render(d);
+    // файлы data/<n>_devices.json и data/<n>_wires.json необязательны: нет файла - нет раздела (макрос ищет «_wires.json» в этой странице)
+    const get = f => fetch("data/" + encodeURIComponent(n) + f + ".json?v=" + Date.now(), {cache: "no-store"})
+      .then(r => r.ok ? r.json() : null).catch(() => null);
+    Promise.all([get("_devices"), get("_wires")]).then(x => { renderExtra(x[0], x[1], n); });
+  })
   .catch(() => fail("Данные щита № " + n + " не найдены. Если паспорт только что обновили, подождите пару минут и обновите страницу."));
 })();
 </script>
